@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zcash Tracker</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0d0d0d;
+      color: #e8e8e8;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 2rem;
+    }
+
+    header h1 { font-size: 1.6rem; font-weight: 700; }
+    header span { font-size: 0.85rem; color: #888; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 10px;
+      padding: 1.2rem 1.4rem;
+    }
+
+    .card .label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.4rem; }
+    .card .value { font-size: 1.6rem; font-weight: 700; }
+    .card .sub { font-size: 0.8rem; color: #888; margin-top: 0.25rem; }
+
+    .positive { color: #4caf7d; }
+    .negative { color: #e05c5c; }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+
+    .section-header h2 { font-size: 1rem; font-weight: 600; }
+
+    .range-btns { display: flex; gap: 0.4rem; }
+
+    .range-btns button {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      color: #aaa;
+      border-radius: 6px;
+      padding: 0.3rem 0.7rem;
+      font-size: 0.78rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .range-btns button.active,
+    .range-btns button:hover {
+      background: #f4b728;
+      border-color: #f4b728;
+      color: #000;
+    }
+
+    canvas { width: 100% !important; }
+
+    .chart-wrap {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 10px;
+      padding: 1.2rem;
+      margin-bottom: 2rem;
+    }
+
+    .loading { color: #555; font-size: 0.85rem; }
+
+    footer { font-size: 0.75rem; color: #444; text-align: center; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>⚡ Zcash Tracker</h1>
+    <span id="last-updated" class="loading">Loading...</span>
+  </header>
+
+  <div class="cards">
+    <div class="card">
+      <div class="label">Price (USD)</div>
+      <div class="value" id="price">—</div>
+      <div class="sub" id="change">—</div>
+    </div>
+    <div class="card">
+      <div class="label">Market Cap</div>
+      <div class="value" id="market-cap">—</div>
+    </div>
+    <div class="card">
+      <div class="label">24h Volume</div>
+      <div class="value" id="volume">—</div>
+    </div>
+    <div class="card">
+      <div class="label">Circulating Supply</div>
+      <div class="value" id="supply">—</div>
+      <div class="sub" id="max-supply">—</div>
+    </div>
+    <div class="card">
+      <div class="label">24h High / Low</div>
+      <div class="value" id="high-low">—</div>
+    </div>
+    <div class="card">
+      <div class="label">All-Time High</div>
+      <div class="value" id="ath">—</div>
+      <div class="sub" id="ath-date">—</div>
+    </div>
+  </div>
+
+  <div class="chart-wrap">
+    <div class="section-header">
+      <h2>Price History</h2>
+      <div class="range-btns">
+        <button onclick="loadHistory(1)" data-days="1">1D</button>
+        <button onclick="loadHistory(7)" data-days="7" class="active">7D</button>
+        <button onclick="loadHistory(30)" data-days="30">1M</button>
+        <button onclick="loadHistory(90)" data-days="90">3M</button>
+        <button onclick="loadHistory(365)" data-days="365">1Y</button>
+      </div>
+    </div>
+    <canvas id="chart" height="280"></canvas>
+  </div>
+
+  <footer>Data from CoinGecko · Updates on page load</footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script>
+    const fmt = (n, decimals = 2) => n == null ? '—' : Number(n).toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+    const fmtCompact = n => n == null ? '—' : Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(n);
+
+    let chart = null;
+
+    async function loadPrice() {
+      const [price, market] = await Promise.all([
+        fetch('/price').then(r => r.json()),
+        fetch('/market').then(r => r.json()),
+      ]);
+
+      document.getElementById('price').textContent = `$${fmt(price.price_usd)}`;
+
+      const chg = price.change_24h_pct;
+      const chgEl = document.getElementById('change');
+      chgEl.textContent = `${chg >= 0 ? '+' : ''}${fmt(chg)}% (24h)`;
+      chgEl.className = `sub ${chg >= 0 ? 'positive' : 'negative'}`;
+
+      document.getElementById('market-cap').textContent = `$${fmtCompact(market.market_cap_usd)}`;
+      document.getElementById('volume').textContent = `$${fmtCompact(market.volume_24h_usd)}`;
+      document.getElementById('supply').textContent = `${fmtCompact(market.circulating_supply)} ZEC`;
+      document.getElementById('max-supply').textContent = `Max: ${fmtCompact(market.max_supply)} ZEC`;
+      document.getElementById('high-low').textContent = `$${fmt(market.high_24h_usd)} / $${fmt(market.low_24h_usd)}`;
+      document.getElementById('ath').textContent = `$${fmt(market.ath_usd)}`;
+      document.getElementById('ath-date').textContent = new Date(market.ath_date).toLocaleDateString();
+
+      const ts = new Date(price.last_updated * 1000);
+      document.getElementById('last-updated').textContent = `Updated ${ts.toLocaleTimeString()}`;
+    }
+
+    async function loadHistory(days) {
+      document.querySelectorAll('.range-btns button').forEach(b => {
+        b.classList.toggle('active', Number(b.dataset.days) === days);
+      });
+
+      const data = await fetch(`/history?days=${days}`).then(r => r.json());
+      const labels = data.history.map(d => new Date(d.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: days <= 1 ? '2-digit' : undefined, minute: days <= 1 ? '2-digit' : undefined }));
+      const prices = data.history.map(d => d.price_usd);
+
+      if (chart) chart.destroy();
+
+      chart = new Chart(document.getElementById('chart'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'ZEC Price (USD)',
+            data: prices,
+            borderColor: '#f4b728',
+            backgroundColor: 'rgba(244,183,40,0.08)',
+            borderWidth: 2,
+            pointRadius: 0,
+            fill: true,
+            tension: 0.3,
+          }]
+        },
+        options: {
+          responsive: true,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#1a1a1a',
+              borderColor: '#2a2a2a',
+              borderWidth: 1,
+              callbacks: { label: ctx => ` $${fmt(ctx.parsed.y)}` }
+            }
+          },
+          scales: {
+            x: { ticks: { color: '#555', maxTicksLimit: 8 }, grid: { color: '#1f1f1f' } },
+            y: { ticks: { color: '#555', callback: v => `$${fmtCompact(v)}` }, grid: { color: '#1f1f1f' } }
+          }
+        }
+      });
+    }
+
+    loadPrice();
+    loadHistory(7);
+  </script>
+</body>
+</html>

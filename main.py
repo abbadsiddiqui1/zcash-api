@@ -1,8 +1,15 @@
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 import httpx
 
 app = FastAPI(title="Zcash Tracker API", version="1.0.0")
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/", include_in_schema=False)
+async def index():
+    return FileResponse("static/index.html")
 
 COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 HEADERS = {"Accept": "application/json"}
